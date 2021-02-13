@@ -30,6 +30,7 @@ def ml_classification(images, name_files):
 
 
 def get_image_classes(images, files):
+    print("get_image_classes")
     img_classes = ml_classification(images, files)
 
     with MultipartWriter('form-data') as mpwriter:

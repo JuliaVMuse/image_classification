@@ -1,9 +1,27 @@
 import aiohttp
 import asyncio
 import os
+from codetiming import Timer
 
 
 IMGS_FOLDER = "media"
+
+
+async def task(name, work_queue):
+    timer = Timer(text=f"Task {name} elapsed time: {{:.1f}}")
+    while not work_queue.empty():
+        delay = await work_queue.get()
+        print(f"Task {name} running")
+        timer.start()
+
+        async with aiohttp.ClientSession() as session:
+            classes = await classification_preprocess(session,
+                                                      'http://localhost:8080/predict',
+                                                      data=delay)
+            print("ML CLASSIFICATION\nResult:")
+            for img in classes:
+                print("File: {0}, class: {1}".format(img, classes[img]))
+        timer.stop()
 
 
 async def classification_preprocess(session, url, data):
@@ -25,26 +43,48 @@ async def classification_preprocess(session, url, data):
 
 
 async def main():
-    async with aiohttp.ClientSession() as session:
-        list_imgs = os.listdir(IMGS_FOLDER)
+    list_imgs = os.listdir(IMGS_FOLDER)
 
-        with aiohttp.MultipartWriter('form-data') as mpwriter:
-            with aiohttp.MultipartWriter('related') as subwriter:
-                for img_file_name in list_imgs:
-                    full_file_name = os.path.join(IMGS_FOLDER, img_file_name)
-                    img_bytes = open(full_file_name, "rb").read()
-                    subwriter.append(img_bytes)
-            mpwriter.append(subwriter)
+    # Создание 1 очереди работы
+    work_queue1 = asyncio.Queue()
 
-            mpwriter.append_json({
-                "process": "image_classification",
-                "list_files": list_imgs
-            })
+    # Помещение работы в очередь
+    with aiohttp.MultipartWriter('form-data') as mpwriter:
+        with aiohttp.MultipartWriter('related') as subwriter:
+            full_file_name = os.path.join(IMGS_FOLDER, list_imgs[0])
+            img_bytes = open(full_file_name, "rb").read()
+            subwriter.append(img_bytes)
+        mpwriter.append(subwriter)
 
-            classes = await classification_preprocess(session, 'http://localhost:8080/predict', data=mpwriter)
-            print("ML CLASSIFICATION\nResult:")
-            for img in classes:
-                print("File: {0}, class: {1}".format(img, classes[img]))
+        mpwriter.append_json({
+            "process": "image_classification",
+            "list_files": [list_imgs[0]]
+        })
+    await work_queue1.put(mpwriter)
+
+    # Создание 2 очереди работы
+    work_queue2 = asyncio.Queue()
+
+    # Помещение работы в очередь
+    with aiohttp.MultipartWriter('form-data') as mpwriter:
+        with aiohttp.MultipartWriter('related') as subwriter:
+            full_file_name = os.path.join(IMGS_FOLDER, list_imgs[1])
+            img_bytes = open(full_file_name, "rb").read()
+            subwriter.append(img_bytes)
+        mpwriter.append(subwriter)
+
+        mpwriter.append_json({
+            "process": "image_classification",
+            "list_files": [list_imgs[1]]
+        })
+    await work_queue2.put(mpwriter)
+
+    # Запуск задач
+    with Timer(text="\nTotal elapsed time: {:.1f}"):
+        await asyncio.gather(
+            asyncio.create_task(task("One", work_queue1)),
+            asyncio.create_task(task("Two", work_queue2)),
+        )
 
 
 loop = asyncio.get_event_loop()
