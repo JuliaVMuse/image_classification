@@ -1,6 +1,7 @@
 import aiohttp
 import asyncio
 import os
+import time
 from codetiming import Timer
 
 
@@ -18,10 +19,9 @@ async def task(name, work_queue):
             classes = await classification_preprocess(session,
                                                       'http://localhost:8080/predict',
                                                       data=delay)
-            print("ML CLASSIFICATION\nResult:")
-            for img in classes:
-                print("File: {0}, class: {1}".format(img, classes[img]))
+
         timer.stop()
+        return classes
 
 
 async def classification_preprocess(session, url, data):
@@ -79,13 +79,23 @@ async def main():
         })
     await work_queue2.put(mpwriter)
 
+    print(f"started at {time.strftime('%X')}")
+
     # Запуск задач
     with Timer(text="\nTotal elapsed time: {:.1f}"):
-        await asyncio.gather(
+        results = await asyncio.gather(
             asyncio.create_task(task("One", work_queue1)),
             asyncio.create_task(task("Two", work_queue2)),
         )
+        print('='*10 + "\nML CLASSIFICATION\nResult:")
+
+        for result in results:
+            for file in result:
+                print("File: {0}, class: {1}".format(file, result[file]))
+
+    print(f"finished at {time.strftime('%X')}")
 
 
-loop = asyncio.get_event_loop()
-loop.run_until_complete(main())
+if __name__ == '__main__':
+    loop = asyncio.get_event_loop()
+    loop.run_until_complete(main())
